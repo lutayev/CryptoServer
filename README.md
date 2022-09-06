@@ -15,4 +15,4 @@ Socket server wrapper for Crypto Pro
 Действие зашифровать/расшифровать задается на уровне сообщения протокола: 
 Protocol::SRV_ENCRYPT, Protocol::SRV_DECRYPT.
 
-Порт и путь к логам задается в конфиге <binary>/../etc/config.json.
+Порт и путь к логам задается в конфиге \<binary\>/../etc/config.json.
