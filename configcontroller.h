@@ -3,6 +3,7 @@
 
 #include <string>
 #include <map>
+#include <stdexcept>
 
 class ConfigController
 {
@@ -19,6 +20,7 @@ private:
 };
 
 
+//Template member, placed in header
 template <class T>
 T ConfigController::getValue(const std::string &parameter)
 {
@@ -41,6 +43,8 @@ T ConfigController::getValue(const std::string &parameter)
     } else if (std::is_same<T, bool>::value) {
         bool tmp = (value == "true" ? true : false);
         res = *reinterpret_cast<T*>(&tmp);
+    } else {
+        throw std::runtime_error("Invalid/unsupported parameter type");
     }
 
     return res;
