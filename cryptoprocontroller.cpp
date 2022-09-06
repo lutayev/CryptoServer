@@ -11,7 +11,7 @@
 #define szOID_CP_GOST_28147 "1.2.643.2.2.21"
 
 
-HCRYPTPROV CryptoproController::m_hCryptProv = NULL;
+HCRYPTPROV CryptoproController::m_hCryptProv = 0;
 HCERTSTORE CryptoproController::m_hStoreHandle = NULL;
 
 static void CleanUp(void);
@@ -25,10 +25,12 @@ CryptoproController::CryptoproController()
 
 }
 
+
 CryptoproController::~CryptoproController()
 {
 
 }
+
 
 bool CryptoproController::openStore()
 {
@@ -37,42 +39,46 @@ bool CryptoproController::openStore()
     }
 
     if(!CryptAcquireContext(
-                &m_hCryptProv,         // Адрес возврашаемого дескриптора.
-                0,                // Используется имя текущего зарегестрированного пользователя.
-                NULL,                // Используется провайдер по умолчанию.
-                PROV_GOST_2001_DH,   // Необходимо для зашифрования и подписи.
-                CRYPT_VERIFYCONTEXT))                // Никакие флаги не нужны.
+                &m_hCryptProv,          // Адрес возврашаемого дескриптора.
+                0,                      // Используется имя текущего зарегестрированного пользователя.
+                NULL,                   // Используется провайдер по умолчанию.
+                PROV_GOST_2001_DH,      // Необходимо для зашифрования и подписи.
+                CRYPT_VERIFYCONTEXT))   // Никакие флаги не нужны.
     {
         HandleError("Cryptographic context could not be acquired.");
         return false;
     }
 
-    std::cout << "CSP has been acquired. \n";
+    //std::cout << "CSP has been acquired. \n";
     // Открытие системного хранилища сертификатов.
     m_hStoreHandle = CertOpenSystemStore(CERT_SYSTEM_STORE_CURRENT_USER, "My");
 
     if(!m_hStoreHandle)
     {
         HandleError( "Error getting store handle.");
+        return false;
     }
-    std::cout << "The MY store is open. \n";
+    //std::cout << "The MY store is open. \n";
     return true;
 }
+
 
 bool CryptoproController::closeStore()
 {
+    bool ok = false;
     if (m_hStoreHandle) {
-        CertCloseStore(m_hStoreHandle, NULL);
+        ok = CertCloseStore(m_hStoreHandle, 0);
     }
 
     if (m_hCryptProv) {
-        CryptReleaseContext(m_hCryptProv, NULL);
+        ok = ok && CryptReleaseContext(m_hCryptProv, 0);
     }
 
     m_hStoreHandle = NULL;
-    m_hCryptProv = NULL;
-    return true;
+    m_hCryptProv = 0;
+    return ok;
 }
+
 
 std::vector<std::string> CryptoproController::listCertificates()
 {
@@ -81,65 +87,63 @@ std::vector<std::string> CryptoproController::listCertificates()
     }
     std::vector<std::string> certs;
     PCCERT_CONTEXT pCert = NULL;
-    while(pCert = CertEnumCertificatesInStore(m_hStoreHandle, pCert))
+    while((pCert = CertEnumCertificatesInStore(m_hStoreHandle, pCert)))
     {
         std::string serial((char*)pCert->pCertInfo->SerialNumber.pbData, pCert->pCertInfo->SerialNumber.cbData);
         std::string subjId((char*)pCert->pCertInfo->SubjectUniqueId.pbData, pCert->pCertInfo->SubjectUniqueId.cbData);
         std::string subjPubKeyInfo((char*)pCert->pCertInfo->SubjectPublicKeyInfo.PublicKey.pbData, pCert->pCertInfo->SubjectPublicKeyInfo.PublicKey.cbData);
 
 
-        std::cout << "\nNext cert." << "\n\tSerial: " << binToHex(serial)
-                  << "\n\tSubject unique ID: " << subjId
-                  << "\n\tSubject public key info: " << subjPubKeyInfo
-                  << std::endl;
+//        std::cout << "\nNext cert." << "\n\tSerial: " << binToHex(serial)
+//                  << "\n\tSubject unique ID: " << subjId
+//                  << "\n\tSubject public key info: " << subjPubKeyInfo
+//                  << std::endl;
         certs.push_back(base64_encode((BYTE*)serial.c_str(), serial.size()));
     }
 
     return certs;
 }
 
+
 PCCERT_CONTEXT CryptoproController::getCertificateBySerial(const std::string &serialHex)
 {
     if (!m_hStoreHandle) {
         openStore();
     }
-    std::cout << "Search for: " << serialHex << std::endl;
+
     PCCERT_CONTEXT pCert = NULL;
-    while(pCert = CertEnumCertificatesInStore(m_hStoreHandle, pCert))
+    while((pCert = CertEnumCertificatesInStore(m_hStoreHandle, pCert)))
     {
         std::string current((char*)pCert->pCertInfo->SerialNumber.pbData, pCert->pCertInfo->SerialNumber.cbData);
         current = binToHex(current);
-        std::cout << "Current: " << current << std::endl;
         if (str_toupper(current) == str_toupper(serialHex)) {
-            std::cout << "found\n";
             return pCert;
-        }
-        if (pCert) {
-            //CertFreeCertificateContext(pCert);
         }
     }
 
+    HandleError(("Can't find certificate with serial " + serialHex).c_str());
     return NULL;
 }
 
+
+//https://cpdn.cryptopro.ru/content/csp39/html/group___crypt_example_CryptMessagesExample.html
 bool CryptoproController::encryptMessage(const std::string &decrypted, std::string& encrypted, const std::string& certSerial)
 {
-    if (!m_hStoreHandle)
-        openStore();
-    // Объявление и инициализация переменных. Они получают указатель на
-    // сообщение, которое будет зашифровано. В данном коде создается сообщение,
-    // получается указатель на него.
+    if (!m_hStoreHandle) {
+        if (!openStore()) {
+            return false;
+        }
+    }
+
+    // Объявление и инициализация переменных. Они получают указатель на сообщение, которое будет зашифровано.
     BYTE* pbContent = (BYTE*)decrypted.c_str();   // Сообщение
-    DWORD cbContent = decrypted.size() + 1;           // Длина сообщения, включая конечный 0
+    DWORD cbContent = decrypted.size() + 1;       // Длина сообщения, включая конечный 0
 
     CRYPT_ALGORITHM_IDENTIFIER EncryptAlgorithm;
     CRYPT_ENCRYPT_MESSAGE_PARA EncryptParams;
 
     BYTE*    pbEncryptedBlob = NULL;
     DWORD    cbEncryptedBlob;
-
-    //printf("source message: %s\n", pbContent);
-    //printf("message length: %d bytes \n", cbContent);
 
     // Получение указателя на сертификат получателя
     PCCERT_CONTEXT pRecipientCert = getCertificateBySerial(certSerial);
@@ -152,10 +156,9 @@ bool CryptoproController::encryptMessage(const std::string &decrypted, std::stri
         return false;
     }
 
-    std::cout << "Prepare encryption" << std::endl;
     // Инициализация структуры с нулем.
     memset(&EncryptAlgorithm, 0, sizeof(CRYPT_ALGORITHM_IDENTIFIER));
-    EncryptAlgorithm.pszObjId = szOID_CP_GOST_28147;
+    EncryptAlgorithm.pszObjId = (char*)szOID_CP_GOST_28147;
 
     // Инициализация структуры CRYPT_ENCRYPT_MESSAGE_PARA.
     memset(&EncryptParams, 0, sizeof(CRYPT_ENCRYPT_MESSAGE_PARA));
@@ -164,7 +167,6 @@ bool CryptoproController::encryptMessage(const std::string &decrypted, std::stri
     EncryptParams.hCryptProv = m_hCryptProv;
     EncryptParams.ContentEncryptionAlgorithm = EncryptAlgorithm;
 
-    std::cout << "Get size of encrypted blob" << std::endl;
     // Вызов функции CryptEncryptMessage.
     if(!CryptEncryptMessage(
                 &EncryptParams,
@@ -179,7 +181,6 @@ bool CryptoproController::encryptMessage(const std::string &decrypted, std::stri
         CertFreeCertificateContext(pRecipientCert);
         return false;
     }
-    printf("The encrypted message is %d bytes. \n", cbEncryptedBlob);
 
     // Распределение памяти под возвращаемый BLOB.
     pbEncryptedBlob = (BYTE*)malloc(cbEncryptedBlob);
@@ -190,7 +191,6 @@ bool CryptoproController::encryptMessage(const std::string &decrypted, std::stri
         return false;
     }
 
-    std::cout << "Call encryption function" << std::endl;
     // Повторный вызов функции CryptEncryptMessage для зашифрования содержимого.
     if(!CryptEncryptMessage(
                 &EncryptParams,
@@ -206,7 +206,6 @@ bool CryptoproController::encryptMessage(const std::string &decrypted, std::stri
         free(pbEncryptedBlob);
         return false;
     }
-    std::cout << "End of encryption function" << std::endl;
 
     for (int i = 0; i < cbEncryptedBlob; ++i) {
         encrypted += ((char*)pbEncryptedBlob)[i];
@@ -217,37 +216,19 @@ bool CryptoproController::encryptMessage(const std::string &decrypted, std::stri
     return true;
 }
 
-//  Определение функции DecryptMessage.
-// Пример функции для расшифрования зашифрованного сообщения с
-// использованием функции CryptDecryptMessage. ЕЕ параметрами являются
-// pbEncryptedBlob, зашифрованное сообщение; cbEncryptedBlob, длина
-// этого сообщения
-//https://cpdn.cryptopro.ru/content/csp39/html/group___crypt_example_CryptMessagesExample.html
+
 bool CryptoproController::decryptMessage(const std::string& encrypted, std::string& decrypted)
 {
     if (!m_hStoreHandle) {
-        openStore();
+        if (!openStore()) {
+            return false;
+        }
     }
 
     DWORD cbDecryptedMessage = 0;
     CRYPT_DECRYPT_MESSAGE_PARA  decryptParams;
 
     BYTE*  pbDecryptedMessage = NULL;
-
-    // Получение указателя на зашифрованное сообщение, pbEncryptedBlob,
-    // и его длину, cbEncryptedBlob. В этом примере они устанавливаются
-    // как параметры совместно с  CSP и дескриптором открытого хранилища.
-    // Просмотр зашифрованного BLOBа.
-//    char * ep = getenv("COLUMNS");
-//    int brk;
-//    int i;
-//    brk = ep ? atoi(ep) : 80;
-//    brk = ((brk <= 3) ? 80 : brk) / 3;
-
-//    printf("The encrypted string is: \n");
-//    for(i = 0; i < encrypted.size(); i++)
-//        printf("%02x%c",(unsigned char)encrypted.c_str()[i],(i%brk == (brk - 1))?'\n':' ');
-//    printf("\n");
 
     //   Инициализация структуры CRYPT_DECRYPT_MESSAGE_PARA.
     memset(&decryptParams, 0, sizeof(CRYPT_DECRYPT_MESSAGE_PARA));
@@ -258,7 +239,6 @@ bool CryptoproController::decryptMessage(const std::string& encrypted, std::stri
 
 
     //  Расшифрование сообщения
-
     //  Вызов фнукции CryptDecryptMessage для получения возвращаемого размера данных.
     if(!CryptDecryptMessage(
                 &decryptParams,
@@ -271,7 +251,6 @@ bool CryptoproController::decryptMessage(const std::string& encrypted, std::stri
         HandleError( "Error getting decrypted message size");
         return false;
     }
-    std::cout << "The size for the decrypted message is:"  << cbDecryptedMessage << std::endl;
 
     // Выделение памяти под возвращаемые расшифрованные данные.
     pbDecryptedMessage = (BYTE*)malloc(cbDecryptedMessage);
@@ -280,6 +259,7 @@ bool CryptoproController::decryptMessage(const std::string& encrypted, std::stri
         HandleError("Memory allocation error while decrypting");
         return false;
     }
+
     // Вызов функции CryptDecryptMessage для расшифрования данных.
     if(!CryptDecryptMessage(
                 &decryptParams,
@@ -297,8 +277,6 @@ bool CryptoproController::decryptMessage(const std::string& encrypted, std::stri
     for (int i = 0; i < cbDecryptedMessage; ++i) {
         decrypted += ((char*)pbDecryptedMessage)[i];
     }
-
-    printf("Message Decrypted Successfully. \n");
 
     free(pbDecryptedMessage);
     return true;
@@ -406,12 +384,13 @@ PCCERT_CONTEXT GetRecipientCert(HCERTSTORE hCertStore)
         free(pKeyInfo);
 
     if (bCertNotFind) {
-        std::cout << "bCertNotFind in GetRecipientCert" << std::endl;
+        std::cout << "bCertNotFound in GetRecipientCert" << std::endl;
         return NULL;
     }
     else
         return (pCertContext);
 } // Конец определения GetRecipientCert
+
 
 //----------------------------------------------------------------------------
 // Получение имени из CERT_NAME_BLOB
@@ -437,8 +416,8 @@ void GetCertDName(PCERT_NAME_BLOB pNameBlob, char **pszName) {
                 *pszName, cbName);
     if (cbName <= 1)
         HandleError("CertNameToStr(pbData)");
-
 }
+
 
 void HandleError(const char* err) {
     std::cout << err << std::endl;

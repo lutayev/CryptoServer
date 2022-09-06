@@ -116,9 +116,6 @@ T& from_bytes( const std::array< byte, sizeof(T) >& bytes, T& object )
     }
 
     inline ERRORS writeMessage(const uint16_t socket, uint8_t head, std::string body = "") {
-        //std::string msg;
-
-        //msg = createRequest(head, body);
         std::string headPart;
         headPart += SOH;
         headPart += head;

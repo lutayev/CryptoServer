@@ -1,15 +1,16 @@
-#include <fstream>
 #include <iostream>
-#include <string>
-#include <sstream>
-#include "cryptoprocontroller.h"
-#include "util.h"
 #include "server.h"
+#include "cryptoprocontroller.h"
+#include "configcontroller.h"
+#include "util.h"
 
 
 int main(int argc, char *argv[])
 {
-    Server server(10001, ServerType::defaultServer);
+
+    int port = ConfigController::getValue<int>("server_port");
+
+    Server server(port, ServerType::defaultServer);
 
     if (!server.isOk()) {
         std::cout << "Error bind or listen" << std::endl;

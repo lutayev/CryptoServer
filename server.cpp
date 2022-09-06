@@ -3,11 +3,11 @@
 Server::Server(unsigned short port, ServerType type)
     : m_portListenClients(port), m_serverType(type)
 {
-    //Initial preparing
+
 #ifdef _WIN32
+    //Warmup windows socket system
     WSADATA WSAData;
-    if (WSAStartup (MAKEWORD(1,1), &WSAData)!=0)
-    {
+    if (WSAStartup (MAKEWORD(1,1), &WSAData)!=0) {
         std::cout << "WSAStartup faild. Error:" << WSAGetLastError();
         m_ok = false;
         return;
@@ -58,7 +58,7 @@ void Server::acceptClients() {
     int fromlen = sizeof(from);
 #endif
 
-    //Infinite loop of accepts untill stop is set
+    //Infinite loop of accepts untill stop flag is set
     while(true) {
         //Select
         int selRes;
@@ -87,22 +87,15 @@ void Server::acceptClients() {
 void Server::addClient(unsigned short clientSocket)
 {
     Connection* client;
-    if (m_serverType == ServerType::remoteEmulatorServer) {
-//        client = new ConnectionRemoteEmulator(clientSocket);
-//        std::cout << "Start RemoteEmulatorServer" << std::endl;
-    } else {
-        client = new Connection(clientSocket);
-        std::cout << "Start Default server" << std::endl;
-    }
+    client = new Connection(clientSocket);
+    std::cout << "Start Default server" << std::endl;
 
-    //Insert client to map
+    //Remember client
     m_mtxClientsMap.lock();
     m_clients.insert(std::pair<unsigned int, Connection*>(clientSocket, client));
-    //printClientInfo(clientSocket);
     m_mtxClientsMap.unlock();
-    //END insert
 
-    //While client is alive, it communicate
+    //While client is alive, it communicates (infinite loop)
     client->communicate();
 
     //Client disconnected, delete it

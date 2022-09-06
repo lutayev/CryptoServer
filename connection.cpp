@@ -1,6 +1,7 @@
 #include <iostream>
 #include <iomanip>
 #include <ctime>
+#include <sstream>
 
 #include "include/rapidjson/document.h"
 #include "include/rapidjson/writer.h"
@@ -8,10 +9,12 @@
 #include "include/rapidjson/prettywriter.h"
 
 #include "cryptoprocontroller.h"
+#include "configcontroller.h"
 #include "util.h"
 
 #include "connection.h"
 
+std::mutex Connection::m_logMtx;
 
 Connection::Connection(unsigned short fd)
 {
@@ -19,7 +22,10 @@ Connection::Connection(unsigned short fd)
 	done = false;
     //m_error = ;
 
-    m_logFile = "../log/log_connection.txt";
+    m_logFile = ConfigController::getValue<std::string>("log_path");
+    if (m_logFile.empty()) {
+        m_logFile = "../log/log_connection.log";
+    }
 
 	m_log.open(m_logFile.c_str(), 
 			std::ios_base::out | std::ios_base::ate | std::ios_base::app);
@@ -35,7 +41,7 @@ Connection::~Connection()
         m_log.close();
 
 
-    if (m_sock != -1) {
+    if ((int)m_sock != -1) {
 #ifdef __linux__
         close(m_sock);
 #elif _WIN32
@@ -44,7 +50,6 @@ Connection::~Connection()
 #else
 #endif
     }
-
 }
 
 void Connection::communicate()
@@ -71,6 +76,7 @@ void Connection::communicate()
 
         //std::cout << "Message: " << message.second << std::endl;
         processMessage(message);
+        flushLogs();
     }
 }
 
@@ -165,15 +171,26 @@ void Connection::log(LogLevel level, std::string message)
     strftime(buffer,sizeof(buffer),"%d-%m-%Y %H:%M:%S",timeinfo);
     std::string timestr(buffer);
 
-    m_log << "\n" << timestr;
+    std::stringstream logMsg;
+
+    logMsg << "\n" << timestr;
 
     if (level == LogLevel::info) {
-        m_log << " Info: ";
+        logMsg << " Info: ";
     } else if (level == LogLevel::warning) {
-        m_log << " Warning: ";
+        logMsg << " Warning: ";
     } else if (level == LogLevel::critical) {
-        m_log << " Critical: ";
+        logMsg << " Critical: ";
     }
-    m_log << message;
-    m_log.flush();
+    logMsg << message;
+    m_logs.push_back(logMsg.str());
+}
+
+void Connection::flushLogs()
+{
+    m_logMtx.lock();
+    for (std::string& msg : m_logs) {
+        m_log << msg;
+    }
+    m_logMtx.unlock();
 }
