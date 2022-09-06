@@ -14,23 +14,6 @@
 HCRYPTPROV CryptoproController::m_hCryptProv = 0;
 HCERTSTORE CryptoproController::m_hStoreHandle = NULL;
 
-static void CleanUp(void);
-static void HandleError(const char *s);
-static PCCERT_CONTEXT GetRecipientCert(HCERTSTORE hCertStore);
-static void DecryptMessage(BYTE *pbEncryptedBlob, DWORD cbEncryptedBlob);
-static void GetCertDName(PCERT_NAME_BLOB pNameBlob, char **pszName);
-
-CryptoproController::CryptoproController()
-{
-
-}
-
-
-CryptoproController::~CryptoproController()
-{
-
-}
-
 
 bool CryptoproController::openStore()
 {
@@ -43,9 +26,8 @@ bool CryptoproController::openStore()
                 0,                      // Используется имя текущего зарегестрированного пользователя.
                 NULL,                   // Используется провайдер по умолчанию.
                 PROV_GOST_2001_DH,      // Необходимо для зашифрования и подписи.
-                CRYPT_VERIFYCONTEXT))   // Никакие флаги не нужны.
-    {
-        HandleError("Cryptographic context could not be acquired.");
+                CRYPT_VERIFYCONTEXT)) { // Никакие флаги не нужны.
+        handleError("Cryptographic context could not be acquired.");
         return false;
     }
 
@@ -53,9 +35,8 @@ bool CryptoproController::openStore()
     // Открытие системного хранилища сертификатов.
     m_hStoreHandle = CertOpenSystemStore(CERT_SYSTEM_STORE_CURRENT_USER, "My");
 
-    if(!m_hStoreHandle)
-    {
-        HandleError( "Error getting store handle.");
+    if(!m_hStoreHandle) {
+        handleError( "Error getting store handle.");
         return false;
     }
     //std::cout << "The MY store is open. \n";
@@ -87,8 +68,7 @@ std::vector<std::string> CryptoproController::listCertificates()
     }
     std::vector<std::string> certs;
     PCCERT_CONTEXT pCert = NULL;
-    while((pCert = CertEnumCertificatesInStore(m_hStoreHandle, pCert)))
-    {
+    while((pCert = CertEnumCertificatesInStore(m_hStoreHandle, pCert))) {
         std::string serial((char*)pCert->pCertInfo->SerialNumber.pbData, pCert->pCertInfo->SerialNumber.cbData);
         std::string subjId((char*)pCert->pCertInfo->SubjectUniqueId.pbData, pCert->pCertInfo->SubjectUniqueId.cbData);
         std::string subjPubKeyInfo((char*)pCert->pCertInfo->SubjectPublicKeyInfo.PublicKey.pbData, pCert->pCertInfo->SubjectPublicKeyInfo.PublicKey.cbData);
@@ -112,8 +92,7 @@ PCCERT_CONTEXT CryptoproController::getCertificateBySerial(const std::string &se
     }
 
     PCCERT_CONTEXT pCert = NULL;
-    while((pCert = CertEnumCertificatesInStore(m_hStoreHandle, pCert)))
-    {
+    while((pCert = CertEnumCertificatesInStore(m_hStoreHandle, pCert))) {
         std::string current((char*)pCert->pCertInfo->SerialNumber.pbData, pCert->pCertInfo->SerialNumber.cbData);
         current = binToHex(current);
         if (str_toupper(current) == str_toupper(serialHex)) {
@@ -121,7 +100,7 @@ PCCERT_CONTEXT CryptoproController::getCertificateBySerial(const std::string &se
         }
     }
 
-    HandleError(("Can't find certificate with serial " + serialHex).c_str());
+    handleError(("Can't find certificate with serial " + serialHex).c_str());
     return NULL;
 }
 
@@ -148,11 +127,10 @@ bool CryptoproController::encryptMessage(const std::string &decrypted, std::stri
     // Получение указателя на сертификат получателя
     PCCERT_CONTEXT pRecipientCert = getCertificateBySerial(certSerial);
 
-    if(!pRecipientCert)
-    {
+    if(!pRecipientCert) {
         printf("No certificate with a CERT_KEY_CONTEXT_PROP_ID \n");
         printf("property and an AT_KEYEXCHANGE private key available. \n");
-        HandleError( "No Certificate with AT_KEYEXCHANGE key in store.");
+        handleError( "No Certificate with AT_KEYEXCHANGE key in store.");
         return false;
     }
 
@@ -167,7 +145,7 @@ bool CryptoproController::encryptMessage(const std::string &decrypted, std::stri
     EncryptParams.hCryptProv = m_hCryptProv;
     EncryptParams.ContentEncryptionAlgorithm = EncryptAlgorithm;
 
-    // Вызов функции CryptEncryptMessage.
+    // Первый вызов функции CryptEncryptMessage для определения размера возвращаемых данных
     if(!CryptEncryptMessage(
                 &EncryptParams,
                 1,
@@ -175,9 +153,8 @@ bool CryptoproController::encryptMessage(const std::string &decrypted, std::stri
                 pbContent,
                 cbContent,
                 NULL,
-                &cbEncryptedBlob))
-    {
-        HandleError( "Getting EncrypBlob size failed.");
+                &cbEncryptedBlob)) {
+        handleError( "Getting EncrypBlob size failed.");
         CertFreeCertificateContext(pRecipientCert);
         return false;
     }
@@ -186,7 +163,7 @@ bool CryptoproController::encryptMessage(const std::string &decrypted, std::stri
     pbEncryptedBlob = (BYTE*)malloc(cbEncryptedBlob);
 
     if(!pbEncryptedBlob) {
-        HandleError("Memory allocation error while encrypting.");
+        handleError("Memory allocation error while encrypting.");
         CertFreeCertificateContext(pRecipientCert);
         return false;
     }
@@ -199,9 +176,8 @@ bool CryptoproController::encryptMessage(const std::string &decrypted, std::stri
                 pbContent,
                 cbContent,
                 pbEncryptedBlob,
-                &cbEncryptedBlob))
-    {
-        HandleError("Encryption failed.");
+                &cbEncryptedBlob)) {
+        handleError("Encryption failed.");
         CertFreeCertificateContext(pRecipientCert);
         free(pbEncryptedBlob);
         return false;
@@ -246,17 +222,15 @@ bool CryptoproController::decryptMessage(const std::string& encrypted, std::stri
                 encrypted.size(),
                 NULL,
                 &cbDecryptedMessage,
-                NULL))
-    {
-        HandleError( "Error getting decrypted message size");
+                NULL)) {
+        handleError( "Error getting decrypted message size");
         return false;
     }
 
     // Выделение памяти под возвращаемые расшифрованные данные.
     pbDecryptedMessage = (BYTE*)malloc(cbDecryptedMessage);
-    if(!pbDecryptedMessage)
-    {
-        HandleError("Memory allocation error while decrypting");
+    if(!pbDecryptedMessage) {
+        handleError("Memory allocation error while decrypting");
         return false;
     }
 
@@ -267,10 +241,9 @@ bool CryptoproController::decryptMessage(const std::string& encrypted, std::stri
                 encrypted.size(),
                 pbDecryptedMessage,
                 &cbDecryptedMessage,
-                NULL))
-    {
+                NULL)) {
         free(pbDecryptedMessage);
-        HandleError("Error decrypting the message");
+        handleError("Error decrypting the message");
         return false;
     }
 
@@ -284,141 +257,7 @@ bool CryptoproController::decryptMessage(const std::string& encrypted, std::stri
 
 
 
-// GetRecipientCert перечисляет сертификаты в хранилище и находит
-// первый сертификат, обладающий ключем AT_EXCHANGE. Если сертификат
-// сертификат найден, то возвращается указатель на него.
-PCCERT_CONTEXT GetRecipientCert(HCERTSTORE hCertStore)
-{
-    PCCERT_CONTEXT pCertContext = NULL;
-    BOOL bCertNotFind = TRUE;
-    DWORD dwSize = 0;
-    CRYPT_KEY_PROV_INFO* pKeyInfo = NULL;
-    DWORD PropId = CERT_KEY_PROV_INFO_PROP_ID;
-    HCRYPTPROV hProv = 0;
-    DWORD dwKeySpec = 0;
-    BOOL  fFreeProv = FALSE;
 
-    if(!hCertStore) {
-        std::cout << "No hCertStore in GetRecipientCert" << std::endl;
-        return NULL;
-    }
-
-    do
-    {
-        // Поиск сертификатов в хранилище до тех пор, пока не будет достигнут
-        // конец хранилища, или сертификат с ключем AT_KEYEXCHANGE не будет найден.
-        pCertContext = CertFindCertificateInStore(
-                    hCertStore, // Дескриптор хранилища, в котором будет осуществлен поиск.
-                    MY_ENCODING_TYPE,
-                    0,
-                    CERT_FIND_SUBJECT_STR,
-                    L"test",
-                    NULL);
-        if ( !pCertContext )
-            break;
-
-        // Для простоты в этом коде реализован только поиск первого
-        // вхождения ключа AT_KEYEXCHANGE. Во многих случаях, помимо
-        // поиска типа ключа, осуществляется также поиск определенного
-        // имени субъекта.
-
-        // Однократный вызов функции CertGetCertificateContextProperty
-        // для получения возврашенного размера структуры.
-        if(!(CertGetCertificateContextProperty(
-                 pCertContext,
-                 CERT_KEY_PROV_INFO_PROP_ID,
-                 NULL,
-                 &dwSize)))
-        {
-            printf("Error getting key property.\n");
-            return NULL;
-        }
-
-        //--------------------------------------------------------------
-        // распределение памяти под возвращенную структуру.
-
-        if(pKeyInfo)
-            free(pKeyInfo);
-
-        pKeyInfo = (CRYPT_KEY_PROV_INFO*)malloc(dwSize);
-
-        if(!pKeyInfo)
-        {
-            HandleError("Error allocating memory for pKeyInfo.");
-        }
-
-        //--------------------------------------------------------------
-        // Получение структуры информации о ключе.
-
-        if(!(CertGetCertificateContextProperty(
-                 pCertContext,
-                 CERT_KEY_PROV_INFO_PROP_ID,
-                 pKeyInfo,
-                 &dwSize)))
-        {
-            HandleError("The second call to the function failed.");
-        }
-
-        //-------------------------------------------
-        // Проверка члена dwKeySpec на расширенный ключ и типа провайдера
-        if(pKeyInfo->dwKeySpec == AT_KEYEXCHANGE && pKeyInfo->dwProvType == PROV_GOST_2001_DH)
-        {
-            //-------------------------------------------
-            //попробуем открыть провайдер
-            fFreeProv = FALSE;
-            if ( CryptAcquireCertificatePrivateKey(pCertContext, CRYPT_ACQUIRE_COMPARE_KEY_FLAG, NULL, &hProv, &dwKeySpec, &fFreeProv))
-            {
-                HCRYPTKEY hKey = 0;
-                if (CryptGetUserKey( hProv, dwKeySpec, &hKey ))
-                {
-                    bCertNotFind = FALSE;
-                    CryptDestroyKey( hKey );
-                }
-                if (fFreeProv)
-                    CryptReleaseContext( hProv, 0 );
-            }
-        }
-    } while(bCertNotFind && pCertContext);
-
-    if(pKeyInfo)
-        free(pKeyInfo);
-
-    if (bCertNotFind) {
-        std::cout << "bCertNotFound in GetRecipientCert" << std::endl;
-        return NULL;
-    }
-    else
-        return (pCertContext);
-} // Конец определения GetRecipientCert
-
-
-//----------------------------------------------------------------------------
-// Получение имени из CERT_NAME_BLOB
-void GetCertDName(PCERT_NAME_BLOB pNameBlob, char **pszName) {
-    DWORD       cbName;
-
-    wchar_t **pszNameW;
-
-    cbName = CertNameToStr(
-                X509_ASN_ENCODING, pNameBlob,
-                CERT_X500_NAME_STR | CERT_NAME_STR_NO_PLUS_FLAG,
-                NULL, 0);
-    if (cbName <= 1)
-        HandleError("CertNameToStr(NULL)");
-
-    *pszName = (char *)malloc(cbName * sizeof(char));
-    if (!*pszName)
-        HandleError("Out of memory.");
-
-    cbName = CertNameToStr(
-                X509_ASN_ENCODING, pNameBlob,
-                CERT_X500_NAME_STR | CERT_NAME_STR_NO_PLUS_FLAG,
-                *pszName, cbName);
-    if (cbName <= 1)
-        HandleError("CertNameToStr(pbData)");
-}
-
-
-void HandleError(const char* err) {
+void CryptoproController::handleError(const char* err) {
     std::cout << err << std::endl;
 }

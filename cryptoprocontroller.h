@@ -15,7 +15,8 @@
 class CryptoproController
 {
 public:
-
+    CryptoproController() = delete;
+    ~CryptoproController() = default;
     static bool openStore();
     static bool closeStore();
     static std::vector<std::string> listCertificates();
@@ -23,11 +24,9 @@ public:
     static bool encryptMessage(const std::string& decrypted, std::string& encrypted, const std::string& certSerial);
     static bool decryptMessage(const std::string& encrypted, std::string& decrypted);
 
-
-
 private:
-    CryptoproController();
-    ~CryptoproController();
+    static void handleError(const char* err);
+
     static HCRYPTPROV m_hCryptProv;        // дескриптор CSP
     static HCERTSTORE m_hStoreHandle;      // дескриптор хранилища сертификатов
 
